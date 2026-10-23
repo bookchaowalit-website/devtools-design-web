@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, it } from "node:test";
-import { countByStatus, createWork, exportWorks, filterWorks, importWorks, normalizeWorks, parseStoredWorks, parseTools, setWorkStatus, statusClass } from "../lib/works.ts";
+import { describe, it } from "vitest";
+import { countByStatus, createWork, exportWorks, filterWorks, importWorks, normalizeWorks, parseStoredWorks, parseTools, setWorkStatus, statusClass } from "@/lib/works";
 
 describe("design works model", () => {
   it("parses a comma list of unique tools", () => {
