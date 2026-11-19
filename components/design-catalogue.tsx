@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppFoot, AppTop, ListButton, Pill, PlusIcon, type Tone } from "@/components/app-shell";
 import { SEED_WORKS } from "@/lib/catalogue";
 import { STATUSES, STORAGE_KEY, TYPES, createWork, exportWorks, filterWorks, importWorks, parseStoredWorks, restoreWork, setWorkStatus } from "@/lib/works";
@@ -9,6 +9,10 @@ import type { Status, Work, WorkDraft } from "@/lib/works";
 const EMPTY_DRAFT: WorkDraft = { title: "", type: "UI/UX", tools: "", status: "Draft" };
 const TONE: Record<Status, Tone> = { Draft: "grey", "In review": "amber", Approved: "green" };
 type Filter = Status | "All";
+// index: where it sat in the stored list when removed. nextShown / prevShown: the rows shown around it, for focus.
+type RemovedEntry = { work: Work; index: number; nextShown?: string; prevShown?: string };
+type RemovedBatch = { removals: RemovedEntry[]; viaKeyboard: boolean };
+const removedLabel = (removals: RemovedEntry[]) => (removals.length === 1 ? `Removed “${removals[0].work.title}”` : `Removed ${removals.length} works`);
 
 function createId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -43,11 +47,19 @@ export function DesignCatalogue() {
   const [draft, setDraft] = useState<WorkDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
-  const [removed, setRemoved] = useState<{ work: Work; index: number } | null>(null);
+  // Every removal still inside the Undo window: one Undo puts them all back where they were.
+  const [removed, setRemovedState] = useState<RemovedBatch | null>(null);
+  // The latest batch, so two removals before a re-render still both land in it.
+  const removedRef = useRef<RemovedBatch | null>(null);
+  const setRemoved = (batch: RemovedBatch | null) => { removedRef.current = batch; setRemovedState(batch); };
+  const [toastFocused, setToastFocused] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const newRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const focusNext = useRef<string[] | null>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
   const wasComposing = useRef(false);
 
   const visible = useMemo(() => filterWorks(works, query).filter((work) => filter === "All" || work.status === filter), [works, query, filter]);
@@ -59,11 +71,37 @@ export function DesignCatalogue() {
     else if (wasComposing.current) newRef.current?.focus();
     wasComposing.current = composing;
   }, [composing]);
+  // A removal made from the keyboard moves focus to Undo (the focused Remove button has just gone).
+  useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
+  // When the toast closes after Undo or Escape, focus goes back near the removed row once the list has re-rendered:
+  // the first of these rows still shown, else the New button.
   useEffect(() => {
-    if (!removed) return;
-    const timer = window.setTimeout(() => setRemoved(null), 6000);
+    const ids = focusNext.current;
+    if (removed || !ids) return;
+    focusNext.current = null;
+    const rows = [...document.querySelectorAll<HTMLElement>(".as-row[data-item]")];
+    const row = ids.map((id) => rows.find((entry) => entry.dataset.item === id)).find(Boolean);
+    (row?.querySelector<HTMLButtonElement>(".as-danger") ?? newRef.current)?.focus();
+  }, [removed, works]);
+  // While the toast shows, reserve its height (plus its 24px offset and a gap) at the bottom of the page and in
+  // scroll-padding, so the last rows and anything focused behind it can scroll clear of it.
+  const toastShown = removed !== null;
+  useLayoutEffect(() => {
+    const toast = toastRef.current;
+    if (!toastShown || !toast) return;
+    const rootStyle = document.documentElement.style;
+    const reserve = () => rootStyle.setProperty("--as-toast-space", `${toast.offsetHeight + 32}px`);
+    reserve();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : null;
+    observer?.observe(toast);
+    return () => { observer?.disconnect(); rootStyle.removeProperty("--as-toast-space"); };
+  }, [toastShown]);
+  // The Undo toast closes 6 s after the latest removal (each removal restarts it), but never while it holds focus.
+  useEffect(() => {
+    if (!removed || toastFocused) return;
+    const timer = window.setTimeout(() => { removedRef.current = null; setRemovedState(null); }, 6000);
     return () => window.clearTimeout(timer);
-  }, [removed]);
+  }, [removed, toastFocused]);
 
   function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,17 +115,32 @@ export function DesignCatalogue() {
     setFormError("");
     setComposing(false);
   }
-  function remove(work: Work) {
+  function remove(work: Work, viaKeyboard: boolean) {
     const index = works.findIndex((item) => item.id === work.id);
+    if (index < 0) return;
     setWorks((current) => current.filter((item) => item.id !== work.id));
-    setRemoved({ work, index });
-    setNotice(`Removed “${work.title}”. Undo is available for a few seconds.`);
+    const shownAt = visible.findIndex((item) => item.id === work.id);
+    const removal: RemovedEntry = { work, index, nextShown: visible[shownAt + 1]?.id, prevShown: shownAt > 0 ? visible[shownAt - 1].id : undefined };
+    const removals = [...(removedRef.current?.removals ?? []), removal];
+    setRemoved({ removals, viaKeyboard });
+    setNotice(removals.length === 1 ? `Removed “${work.title}”. Undo is available for a few seconds.` : `Removed ${removals.length} works. Undo is available for a few seconds.`);
+  }
+  function closeToast(focusIds?: string[]) {
+    const last = removedRef.current?.removals.at(-1);
+    // Dismissed: the row after the removed one, else the one before it.
+    focusNext.current = focusIds ?? [last?.nextShown, last?.prevShown].filter((id): id is string => Boolean(id));
+    setRemoved(null);
+    setToastFocused(false);
   }
   function undo() {
-    if (!removed) return;
-    setWorks((current) => restoreWork(current, removed.work, removed.index));
-    setNotice(`Restored “${removed.work.title}”.`);
-    setRemoved(null);
+    const removals = removedRef.current?.removals;
+    if (!removals?.length) return;
+    // Latest removal first, so each index refers to the list as it was just before that removal.
+    setWorks((current) => removals.reduceRight((list, { work, index }) => restoreWork(list, work, index), current));
+    const latest = removals[removals.length - 1].work;
+    setNotice(removals.length === 1 ? `Restored “${latest.title}”.` : `Restored ${removals.length} works.`);
+    // Undone: back to the restored row the user removed last.
+    closeToast([latest.id]);
   }
   function exportJson() {
     const href = URL.createObjectURL(new Blob([exportWorks(works)], { type: "application/json" }));
@@ -169,7 +222,7 @@ export function DesignCatalogue() {
           {visible.length ? (
             <ul className="as-list" aria-label={title}>
               {visible.map((work) => (
-                <li className="as-row ds-row" key={work.id}>
+                <li className="as-row ds-row" key={work.id} data-item={work.id}>
                   <div>
                     <h3>{work.title}</h3>
                     <p className="as-row-detail">{work.type}{work.tools.length ? ` · ${work.tools.join(", ")}` : ""}</p>
@@ -181,7 +234,7 @@ export function DesignCatalogue() {
                       {STATUSES.map((status) => <option key={status}>{status}</option>)}
                     </select>
                   </label>
-                  <button type="button" className="as-plain as-danger" aria-label={`Remove ${work.title}`} onClick={() => remove(work)}>Remove</button>
+                  <button type="button" className="as-plain as-danger" aria-label={`Remove ${work.title}`} onClick={(event) => remove(work, event.detail === 0)}>Remove</button>
                 </li>
               ))}
             </ul>
@@ -217,9 +270,17 @@ export function DesignCatalogue() {
 
       <p className="as-sr" role="status" aria-live="polite">{notice}</p>
       {removed ? (
-        <div className="as-toast" role="group" aria-label="Undo remove" onKeyDown={(event) => { if (event.key === "Escape") setRemoved(null); }}>
-          <span>Removed “{removed.work.title}”</span>
-          <button type="button" className="as-plain" onClick={undo}>Undo</button>
+        <div
+          ref={toastRef}
+          className="as-toast"
+          role="group"
+          aria-label="Undo remove"
+          onFocus={() => setToastFocused(true)}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
+          onKeyDown={(event) => { if (event.key === "Escape") closeToast(); }}
+        >
+          <span>{removedLabel(removed.removals)}</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={undo} aria-label={removed.removals.length === 1 ? "Undo remove" : `Undo remove of ${removed.removals.length} works`}>Undo</button>
         </div>
       ) : null}
 

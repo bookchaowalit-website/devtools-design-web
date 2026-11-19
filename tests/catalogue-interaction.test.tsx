@@ -11,7 +11,8 @@ let root: Root;
 let host: HTMLDivElement;
 const button = (text: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
 const rows = () => [...host.querySelectorAll(".as-row h3")].map((h) => h.textContent);
-const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+// A pointer click (detail 1); a keyboard click has detail 0 and moves focus to Undo after Remove.
+const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); });
 const notice = () => host.querySelector('.as-sr[role="status"]')?.textContent;
 function type(el: HTMLInputElement, value: string) {
   act(() => {
@@ -112,5 +113,65 @@ describe("design catalogue", () => {
     Object.defineProperty(input, "files", { value: [bad], configurable: true });
     await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
     expect(notice()).toBe("That file is not valid JSON.");
+  });
+});
+
+describe("batch Undo", () => {
+  // One more work, so there are three rows to remove from.
+  beforeEach(() => {
+    press(button("New work"));
+    type(host.querySelector<HTMLInputElement>('form[aria-label="New work"] input')!, "Editorial system");
+    act(() => { host.querySelector<HTMLFormElement>('form[aria-label="New work"]')!.requestSubmit(); });
+  });
+  // detail 0 = keyboard (Enter/Space) click, 1 = pointer click.
+  const click = (el: Element, detail: number) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail })); });
+  const shownRows = () => [...host.querySelectorAll<HTMLElement>(".as-row[data-item]")];
+  const rowIds = () => shownRows().map((row) => row.dataset.item);
+  const removeButton = (i: number) => shownRows()[i].querySelector<HTMLButtonElement>(".as-danger")!;
+  const undoButton = () => host.querySelector<HTMLButtonElement>(".as-toast button")!;
+  const escape = () => act(() => { host.querySelector(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+
+  it("consecutive removes restore together with one Undo", () => {
+    vi.useFakeTimers();
+    const before = rowIds();
+    expect(before).toHaveLength(3);
+    click(removeButton(1), 1);
+    act(() => { vi.advanceTimersByTime(4000); });
+    click(removeButton(0), 1);
+    expect(rowIds()).toEqual(before.slice(2));
+    expect(host.querySelector(".as-toast span")!.textContent).toBe("Removed 2 works");
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo remove of 2 works");
+    // The second removal restarted the 6 s window: 4 s later it is still open.
+    act(() => { vi.advanceTimersByTime(4000); });
+    click(undoButton(), 1);
+    expect(rowIds()).toEqual(before);
+    expect(host.querySelector(".as-toast")).toBeNull();
+    expect(notice()).toBe("Restored 2 works.");
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toHaveLength(3);
+  });
+
+  it("keyboard remove focuses Undo; Undo focuses the restored row, Escape the next one", () => {
+    const before = rowIds();
+    click(removeButton(0), 0);
+    expect(document.activeElement).toBe(undoButton());
+    expect(document.documentElement.style.getPropertyValue("--as-toast-space")).toMatch(/px$/);
+    click(undoButton(), 0);
+    expect(rowIds()).toEqual(before);
+    expect(document.activeElement).toBe(removeButton(0));
+    click(removeButton(0), 0);
+    escape();
+    expect(host.querySelector(".as-toast")).toBeNull();
+    expect(document.activeElement).toBe(removeButton(0));
+    expect(rowIds()).toEqual(before.slice(1));
+  });
+
+  it("keeps a focused toast open until focus leaves it", () => {
+    vi.useFakeTimers();
+    click(removeButton(0), 0);
+    act(() => { vi.advanceTimersByTime(7000); });
+    expect(host.querySelector(".as-toast")).not.toBeNull();
+    act(() => { button("New work").focus(); });
+    act(() => { vi.advanceTimersByTime(6000); });
+    expect(host.querySelector(".as-toast")).toBeNull();
   });
 });
