@@ -6,7 +6,7 @@
 
 ## What it is
 
-A client-only text catalogue of design work styled as a star atlas, seeded with two works from `data/works.json`.
+A client-only text catalogue of design work on the shared App shell, seeded with two works from `data/works.json`.
 
 ## Who it is for
 
@@ -16,7 +16,7 @@ A designer keeping a short list of projects with their tools and review state, a
 
 1. Two seed works (Brand Identity, UI Design). Add a work with a title (≤ 80), type, up to 8 tools (comma-separated,
    de-duplicated ignoring case) and status Draft, In review or Approved.
-2. Search by title, type, tool or status; change status; remove a work; the sky panel counts points and approvals.
+2. Filter by status list (with counts), search by title, type, tool or status; change status; remove a work with Undo.
 3. Export the catalogue as versioned JSON; import a backup (validated, BOM-tolerant, merged by id, with a notice).
 4. Saved data is repaired on load (bad JSON, unknown statuses, overlong text).
 5. `/api/mcp` answers JSON-RPC with `get_all`, `get_by_id` and `search` over the published seed works; works added

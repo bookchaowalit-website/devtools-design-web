@@ -1,3 +1,11 @@
+# Design Specs design
+
+**2026-11-19: moved onto the shared App shell** (see `APP-SHELL.md`; `app/app-shell.css` and `components/app-shell.tsx`
+are byte-identical copies from productivity-ideas-web). Status lists with counts on the left (a pill row on phones),
+search and New work in the head, the composer opens in place, rows carry a status pill, a status select and Remove
+(with Undo). Backup (Export / Import JSON) sits in its own panel that says the data lives in this browser only.
+The star-atlas look described below is retired and kept for history.
+
 ---
 name: Design Specs Star Atlas
 description: A celestial catalogue for visual work, regions, and tools.

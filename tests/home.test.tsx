@@ -4,10 +4,13 @@ import Home from "@/app/page";
 import { SEED_WORKS } from "@/lib/catalogue";
 
 describe("home page", () => {
-  it("renders every seed work from data/works.json and the local-only footer", () => {
+  it("renders the App shell catalogue with every seed work, the storage note and the hub footer", () => {
     const html = renderToString(<Home />);
-    expect(html).toContain("work in constellations.");
+    expect(html).toContain("All work");
     for (const work of SEED_WORKS) expect(html).toContain(work.title);
-    expect(html).toContain("Local catalogue · data stays in this browser");
+    expect(html).toContain("saved in this browser only (localStorage)");
+    expect(html).toContain("are examples from data/works.json");
+    expect(html).toContain('href="https://bookchaowalit.com/"');
+    expect(html).toContain('href="#main"');
   });
 });

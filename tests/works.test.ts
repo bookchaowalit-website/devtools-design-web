@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, it } from "vitest";
-import { countByStatus, createWork, exportWorks, filterWorks, importWorks, normalizeWorks, parseStoredWorks, parseTools, setWorkStatus, statusClass } from "@/lib/works";
+import { describe, expect, it } from "vitest";
+import { countByStatus, createWork, exportWorks, filterWorks, importWorks, normalizeWorks, parseStoredWorks, parseTools, restoreWork, setWorkStatus, statusClass } from "@/lib/works";
 
 describe("design works model", () => {
   it("parses a comma list of unique tools", () => {
@@ -89,5 +89,15 @@ describe("edge cases", () => {
     assert.deepEqual(createWork({ title: "​﻿", type: "Branding", tools: "", status: "Draft" }, "w1"), { error: "Give the work a title." });
     const [work] = normalizeWorks([{ id: "w1", title: `${"x".repeat(79)}😀` }]);
     assert.equal(work.title, "x".repeat(79));
+  });
+});
+
+describe("restoreWork", () => {
+  const a = { id: "a", title: "A", type: "Branding", tools: [], status: "Draft" as const };
+  const b = { id: "b", title: "B", type: "Branding", tools: [], status: "Draft" as const };
+  it("puts a work back at its index, clamped, and never twice", () => {
+    expect(restoreWork([b], a, 0).map((w) => w.id)).toEqual(["a", "b"]);
+    expect(restoreWork([b], a, 9).map((w) => w.id)).toEqual(["b", "a"]);
+    expect(restoreWork([a, b], a, 1).map((w) => w.id)).toEqual(["a", "b"]);
   });
 });

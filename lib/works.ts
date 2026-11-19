@@ -144,3 +144,10 @@ export function importWorks(current: readonly Work[], raw: string): ImportResult
   const fresh = normalizeWorks(list).filter((work) => !known.has(work.id));
   return { works: [...current, ...fresh], added: fresh.length, skipped: list.length - fresh.length };
 }
+
+/** Put a removed work back at its old position (clamped), unless its id is already back. */
+export function restoreWork(works: readonly Work[], work: Work, index: number): Work[] {
+  if (works.some((item) => item.id === work.id)) return [...works];
+  const at = Math.max(0, Math.min(index, works.length));
+  return [...works.slice(0, at), work, ...works.slice(at)];
+}
