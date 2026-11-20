@@ -28,6 +28,16 @@ A designer keeping a short list of projects with their tools and review state, a
 - No images at all: no gallery, lazy loading, lightbox, CDN or uploads.
 - No account, sharing or sync; clearing site data deletes added works unless exported.
 
+## Known limits
+
+- Undo after importing an existing id does not restore the pre-delete copy: if a work is removed and a backup that
+  holds the same id (for example an older Draft copy) is imported before Undo, Undo keeps the imported copy and still
+  reports the work as restored, so the state and details from before the delete are not brought back (report
+  devtools-design-web-b441472d6c, 2026-11-20).
+- Focus does not move when a status change drops the row from the list: changing a work's status from inside a status
+  list (e.g. Approved to Draft while viewing Approved) removes the row and its focused select, so keyboard focus falls
+  back to the page instead of the next row's status or the list button (same report).
+
 ## Live URL and deploy state
 
 - Live: https://design.bookchaowalit.com (HTTP 200 on 2026-10-23).
