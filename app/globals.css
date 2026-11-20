@@ -16,6 +16,8 @@ html { scroll-padding-top: 64px; }
 .ds-backup h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .ds-backup p { margin: 6px 0 0; color: var(--as-muted); font-size: 14px; line-height: 1.6; }
 .ds-backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0 -12px; }
+.ds-backup .ds-backup-status { margin: 4px 0 0; color: var(--as-fg); }
+/* Kept rendered when empty: a live region that appears with its text is often not announced. */
 @media (max-width: 760px) {
   .ds-row { grid-template-columns: minmax(0, 1fr) auto; }
   .ds-row .as-pill { grid-column: 1; justify-self: start; }

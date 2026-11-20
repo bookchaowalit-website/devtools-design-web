@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AppFoot, AppTop, ListButton, Pill, PlusIcon, type Tone } from "@/components/app-shell";
 import { SEED_WORKS } from "@/lib/catalogue";
 import { STATUSES, STORAGE_KEY, TYPES, createWork, exportWorks, filterWorks, importWorks, parseStoredWorks, restoreWork, setWorkStatus } from "@/lib/works";
@@ -39,6 +39,44 @@ function useWorks() {
   return [works, setWorks] as const;
 }
 
+// One line of type and tools per row (App shell rule); a longer one gets Show more.
+function RowDetail({ body }: { body: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const id = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => { if (el.dataset.expanded !== "true") setClipped(el.scrollWidth > el.clientWidth); };
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    measure();
+    // A web font that loads later can widen the text without resizing the box, so measure again then.
+    let live = true;
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    const remeasure = () => { if (live) measure(); };
+    fonts?.ready?.then(remeasure, () => {});
+    fonts?.addEventListener?.("loadingdone", remeasure);
+    return () => {
+      live = false;
+      observer?.disconnect();
+      fonts?.removeEventListener?.("loadingdone", remeasure);
+    };
+  }, [body]);
+  const long = expanded || clipped || body.includes("\n");
+  return (
+    <>
+      <p ref={ref} id={id} className="as-row-detail" data-expanded={expanded ? "true" : undefined}>{body}</p>
+      {long ? (
+        <button type="button" className="as-plain as-row-more" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 export function DesignCatalogue() {
   const [works, setWorks] = useWorks();
   const [query, setQuery] = useState("");
@@ -47,6 +85,8 @@ export function DesignCatalogue() {
   const [draft, setDraft] = useState<WorkDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
+  // Export / import results, shown inside the Backup panel next to its controls.
+  const [backupNotice, setBackupNotice] = useState("");
   // Every removal still inside the Undo window: one Undo puts them all back where they were.
   const [removed, setRemovedState] = useState<RemovedBatch | null>(null);
   // The latest batch, so two removals before a re-render still both land in it.
@@ -61,6 +101,9 @@ export function DesignCatalogue() {
   const focusNext = useRef<string[] | null>(null);
   const toastRef = useRef<HTMLDivElement>(null);
   const wasComposing = useRef(false);
+  // The latest list, for an import that finishes after other changes (an Undo while the file was read).
+  const worksRef = useRef(works);
+  useLayoutEffect(() => { worksRef.current = works; }, [works]);
 
   const visible = useMemo(() => filterWorks(works, query).filter((work) => filter === "All" || work.status === filter), [works, query, filter]);
   const countOf = (value: Filter) => (value === "All" ? works.length : works.filter((work) => work.status === value).length);
@@ -149,14 +192,16 @@ export function DesignCatalogue() {
     anchor.download = "design-catalogue.json";
     anchor.click();
     URL.revokeObjectURL(href);
-    setNotice(`Exported ${works.length} ${works.length === 1 ? "work" : "works"} to design-catalogue.json.`);
+    setBackupNotice(`Exported ${works.length} ${works.length === 1 ? "work" : "works"} to design-catalogue.json.`);
   }
   async function importJson(file: File | undefined) {
     if (!file) return;
-    const result = importWorks(works, await file.text());
-    if ("error" in result) { setNotice(result.error); return; }
-    setWorks(result.works);
-    setNotice(`Imported ${result.added} new ${result.added === 1 ? "work" : "works"}${result.skipped ? `, skipped ${result.skipped} (already here or invalid)` : ""}.`);
+    const text = await file.text();
+    // Merge into the latest list once the file is read, not the list from when it was picked.
+    const result = importWorks(worksRef.current, text);
+    if ("error" in result) { setBackupNotice(result.error); return; }
+    if (result.added) setWorks((current) => { const merged = importWorks(current, text); return "error" in merged ? current : merged.works; });
+    setBackupNotice(`Imported ${result.added} new ${result.added === 1 ? "work" : "works"}${result.skipped ? `, skipped ${result.skipped} (already here or invalid)` : ""}.`);
   }
 
   const lists: { value: Filter; tone?: Tone }[] = [{ value: "All" }, ...STATUSES.map((status) => ({ value: status, tone: TONE[status] }))];
@@ -225,7 +270,7 @@ export function DesignCatalogue() {
                 <li className="as-row ds-row" key={work.id} data-item={work.id}>
                   <div>
                     <h3>{work.title}</h3>
-                    <p className="as-row-detail">{work.type}{work.tools.length ? ` · ${work.tools.join(", ")}` : ""}</p>
+                    <RowDetail body={`${work.type}${work.tools.length ? ` · ${work.tools.join(", ")}` : ""}`} />
                   </div>
                   <Pill tone={TONE[work.status]}>{work.status}</Pill>
                   <label className="ds-status">
@@ -262,6 +307,7 @@ export function DesignCatalogue() {
               <button type="button" className="as-plain" onClick={() => fileRef.current?.click()}>Import JSON</button>
               <input ref={fileRef} className="as-sr" type="file" accept="application/json,.json" tabIndex={-1} aria-hidden="true" onChange={(event) => { void importJson(event.target.files?.[0]); event.target.value = ""; }} />
             </div>
+            <p className="ds-backup-status" role="status" aria-live="polite">{backupNotice}</p>
           </section>
 
           <p className="as-note">The two starting entries, Brand Identity and UI Design, are examples from data/works.json, also served read-only at /api/mcp. Works you add stay in this browser and are never sent anywhere.</p>

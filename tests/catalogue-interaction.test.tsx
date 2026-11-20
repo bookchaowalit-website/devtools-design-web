@@ -14,6 +14,8 @@ const rows = () => [...host.querySelectorAll(".as-row h3")].map((h) => h.textCon
 // A pointer click (detail 1); a keyboard click has detail 0 and moves focus to Undo after Remove.
 const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); });
 const notice = () => host.querySelector('.as-sr[role="status"]')?.textContent;
+// Backup results show inside the Backup panel, next to its controls.
+const backupNotice = () => host.querySelector('.ds-backup [role="status"]')?.textContent;
 function type(el: HTMLInputElement, value: string) {
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, value);
@@ -97,22 +99,22 @@ describe("design catalogue", () => {
     expect(host.textContent).toContain("No work yet");
   });
 
-  it("exports and imports a JSON backup with a notice", async () => {
+  it("exports and imports a JSON backup with a visible result in the Backup panel", async () => {
     const created = vi.fn(() => "blob:x");
     Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() });
     press(button("Export JSON"));
     expect(created).toHaveBeenCalled();
-    expect(notice()).toBe("Exported 2 works to design-catalogue.json.");
+    expect(backupNotice()).toBe("Exported 2 works to design-catalogue.json.");
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File([JSON.stringify({ works: [{ id: "9", title: "Poster", type: "Editorial", tools: [], status: "Draft" }, { id: "1" }] })], "b.json");
     Object.defineProperty(input, "files", { value: [file], configurable: true });
     await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
     expect(rows()).toContain("Poster");
-    expect(notice()).toContain("Imported 1 new work, skipped 1");
+    expect(backupNotice()).toContain("Imported 1 new work, skipped 1");
     const bad = new File(["nope"], "c.json");
     Object.defineProperty(input, "files", { value: [bad], configurable: true });
     await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
-    expect(notice()).toBe("That file is not valid JSON.");
+    expect(backupNotice()).toBe("That file is not valid JSON.");
   });
 });
 
@@ -175,3 +177,52 @@ describe("batch Undo", () => {
     expect(host.querySelector(".as-toast")).toBeNull();
   });
 });
+
+describe("backup import and long tool lists", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(document, "fonts");
+  });
+  const ids = () => [...host.querySelectorAll<HTMLElement>(".as-row[data-item]")].map((row) => row.dataset.item);
+
+  it("an import that finishes after Undo merges into the latest list and keeps the restored work", async () => {
+    const before = ids();
+    act(() => { host.querySelector<HTMLButtonElement>(".as-row .as-danger")!.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); });
+    let finish!: (text: string) => void;
+    const file = { text: () => new Promise<string>((resolve) => { finish = resolve; }) } as unknown as File;
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    press(host.querySelector<HTMLButtonElement>(".as-toast button")!);
+    expect(ids()).toEqual(before);
+    await act(async () => { finish(JSON.stringify({ works: [{ id: "9", title: "Poster", type: "Editorial", tools: [], status: "Draft" }] })); await new Promise((r) => setTimeout(r, 0)); });
+    expect(ids()).toEqual([...before, "9"]);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).map((work: { id: string }) => work.id)).toEqual([...before, "9"]);
+    expect(backupNotice()).toBe("Imported 1 new work.");
+  });
+
+  it("a clipped tool list gets Show more / Show less, measured again after fonts load", async () => {
+    act(() => root.unmount());
+    let fontsReady!: () => void;
+    const ready = new Promise<void>((resolve) => { fontsReady = resolve; });
+    Object.defineProperty(document, "fonts", { configurable: true, value: { ready, addEventListener: vi.fn(), removeEventListener: vi.fn() } });
+    let wide = 200;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("as-row-detail") ? wide : 200;
+    });
+    root = createRoot(host);
+    act(() => root.render(<DesignCatalogue />));
+    expect(button("Show more")).toBeUndefined();
+    wide = 260;
+    await act(async () => { fontsReady(); await ready; });
+    const more = button("Show more");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    const detail = host.querySelector<HTMLElement>(`#${CSS.escape(more.getAttribute("aria-controls")!)}`)!;
+    expect(detail.className).toContain("as-row-detail");
+    press(more);
+    expect(detail.dataset.expanded).toBe("true");
+    expect(button("Show less").getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
