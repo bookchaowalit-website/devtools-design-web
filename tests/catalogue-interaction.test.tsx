@@ -226,3 +226,15 @@ describe("backup import and long tool lists", () => {
   });
 });
 
+
+describe("row layout CSS", () => {
+  it("stacks the status pill and select under the title below 900px, so the detail line keeps real width beside the sidebar", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(`${process.cwd()}/app/globals.css`, "utf8");
+    const narrow = css.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/);
+    expect(narrow).not.toBeNull();
+    expect(narrow![1]).toMatch(/\.ds-row \{ grid-template-columns: minmax\(0, 1fr\) auto; \}/);
+    expect(narrow![1]).toMatch(/\.ds-row \.ds-status \{ grid-column: 1;/);
+    expect(narrow![1]).toMatch(/\.ds-row > \.as-danger \{ grid-column: 2;/);
+  });
+});

@@ -18,11 +18,15 @@ html { scroll-padding-top: 64px; }
 .ds-backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0 -12px; }
 .ds-backup .ds-backup-status { margin: 4px 0 0; color: var(--as-fg); }
 /* Kept rendered when empty: a live region that appears with its text is often not announced. */
-@media (max-width: 760px) {
+/* Below 900px the sidebar still takes 240px, so four columns left the title and detail ~80px at 768.
+   Stack the pill and status select under the title; Remove stays on the right. */
+@media (max-width: 900px) {
   .ds-row { grid-template-columns: minmax(0, 1fr) auto; }
   .ds-row .as-pill { grid-column: 1; justify-self: start; }
-  .ds-row .ds-status { grid-column: 1; grid-row: auto; }
-  .ds-row .as-plain { grid-column: 2; grid-row: 1 / span 3; }
+  .ds-row .ds-status { grid-column: 1; grid-row: auto; max-width: 240px; }
+  .ds-row > .as-danger { grid-column: 2; grid-row: 1 / span 3; }
+}
+@media (max-width: 760px) {
   .ds-backup-actions { margin-left: 0; }
 }
 @media (forced-colors: active) { .ds-select { border-color: CanvasText; } }
